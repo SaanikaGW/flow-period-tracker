@@ -16,30 +16,36 @@ const SYMPTOMS = [
 
 const FLOW_LEVELS = ["none", "light", "medium", "heavy"];
 
-type Log = {
-  id: number;
+export type Log = {
+  id: string;
   date: string;
   symptoms: string[];
-  flow_level: string | null;
-  notes: string | null;
+  flow_level: string;
+  notes: string;
 };
+
+function loadLogs(): Log[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem("flow_logs") || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveLogs(logs: Log[]) {
+  localStorage.setItem("flow_logs", JSON.stringify(logs));
+}
 
 export default function TrackerPage() {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
-  const [flowLevel, setFlowLevel] = useState<string>("none");
+  const [flowLevel, setFlowLevel] = useState("none");
   const [notes, setNotes] = useState("");
   const [logs, setLogs] = useState<Log[]>([]);
-  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => { fetchLogs(); }, []);
-
-  async function fetchLogs() {
-    const res = await fetch("http://localhost:8000/api/symptoms");
-    const data = await res.json();
-    setLogs(data);
-  }
+  useEffect(() => { setLogs(loadLogs()); }, []);
 
   function toggleSymptom(id: string) {
     setSelectedSymptoms((prev) =>
@@ -47,25 +53,28 @@ export default function TrackerPage() {
     );
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
-    await fetch("http://localhost:8000/api/symptoms", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date, symptoms: selectedSymptoms, flow_level: flowLevel, notes }),
-    });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    const newLog: Log = {
+      id: Date.now().toString(),
+      date,
+      symptoms: selectedSymptoms,
+      flow_level: flowLevel,
+      notes,
+    };
+    const updated = [newLog, ...logs].sort((a, b) => b.date.localeCompare(a.date));
+    saveLogs(updated);
+    setLogs(updated);
     setSelectedSymptoms([]);
     setNotes("");
-    fetchLogs();
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
   }
 
-  async function handleDelete(id: number) {
-    await fetch(`http://localhost:8000/api/symptoms/${id}`, { method: "DELETE" });
-    fetchLogs();
+  function handleDelete(id: string) {
+    const updated = logs.filter((l) => l.id !== id);
+    saveLogs(updated);
+    setLogs(updated);
   }
 
   return (
@@ -139,10 +148,9 @@ export default function TrackerPage() {
 
         <button
           type="submit"
-          disabled={saving}
-          className="bg-rose-500 hover:bg-rose-600 text-white px-5 py-2 rounded-full text-sm font-medium transition-colors disabled:opacity-50"
+          className="bg-rose-500 hover:bg-rose-600 text-white px-5 py-2 rounded-full text-sm font-medium transition-colors"
         >
-          {saving ? "Saving..." : saved ? "Saved!" : "Log Symptoms"}
+          {saved ? "Saved!" : "Log Symptoms"}
         </button>
       </form>
 

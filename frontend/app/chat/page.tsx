@@ -1,5 +1,6 @@
 "use client";
 import { useState, useRef, useEffect } from "react";
+import type { Log } from "../page";
 
 type Message = { role: "user" | "assistant"; content: string };
 
@@ -9,6 +10,15 @@ const SUGGESTIONS = [
   "Is it normal to feel so tired?",
   "What does my symptom history show?",
 ];
+
+function loadLogs(): Log[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem("flow_logs") || "[]");
+  } catch {
+    return [];
+  }
+}
 
 export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([
@@ -40,15 +50,25 @@ export default function ChatPage() {
     }));
 
     try {
-      const res = await fetch("http://localhost:8000/api/chat", {
+      const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history }),
+        body: JSON.stringify({
+          message: text,
+          history,
+          symptomLogs: loadLogs().slice(0, 30),
+        }),
       });
       const data = await res.json();
-      setMessages((prev) => [...prev, { role: "assistant", content: data.reply || data.detail || "Something went wrong." }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: data.reply || data.detail || "Something went wrong." },
+      ]);
     } catch {
-      setMessages((prev) => [...prev, { role: "assistant", content: "Connection error. Is the backend running?" }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: "Connection error. Please try again." },
+      ]);
     } finally {
       setLoading(false);
     }
