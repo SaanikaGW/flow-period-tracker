@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
-
-const client = new Anthropic({ apiKey: process.env.OPEN_API_KEY });
+import OpenAI from "openai";
 
 export async function POST(req: Request) {
+  const client = new OpenAI({ apiKey: process.env.OPEN_API_KEY });
   const { message, history, symptomLogs } = await req.json();
 
   const contextSummary =
@@ -28,18 +27,21 @@ When explaining symptoms:
 - Flag symptoms that may warrant a doctor visit (very heavy bleeding, severe pain, unusual patterns)
 - Be warm, empathetic, and never make the user feel embarrassed`;
 
-  const messages: Anthropic.MessageParam[] = [
-    ...history,
+  const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: systemPrompt },
+    ...history.map((m: { role: string; content: string }) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    })),
     { role: "user", content: message },
   ];
 
-  const response = await client.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1024,
-    system: systemPrompt,
+  const response = await client.chat.completions.create({
+    model: "gpt-4o",
     messages,
+    max_tokens: 1024,
   });
 
-  const text = response.content.find((b) => b.type === "text");
-  return NextResponse.json({ reply: text?.type === "text" ? text.text : "" });
+  const reply = response.choices[0]?.message?.content ?? "";
+  return NextResponse.json({ reply });
 }
