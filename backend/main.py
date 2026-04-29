@@ -47,7 +47,7 @@ async def delete_symptom_log(log_id: int):
 
 @app.post("/api/chat")
 async def chat(msg: ChatMessage):
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not set")
+    if not os.environ.get("OPEN_API_KEY"):
+        raise HTTPException(status_code=500, detail="OPEN_API_KEY not set")
     reply = await agent.run_agent(msg.message, msg.history)
     return {"reply": reply}

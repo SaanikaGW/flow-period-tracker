@@ -5,7 +5,7 @@ from anthropic import Anthropic
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+client = Anthropic(api_key=os.environ.get("OPEN_API_KEY"))
 
 SYSTEM_PROMPT = """You are a knowledgeable, warm, and non-judgmental period health assistant.
 You help users understand their menstrual symptoms, explain why they happen, and suggest evidence-based remedies.
