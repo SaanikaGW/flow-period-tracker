@@ -1,0 +1,5 @@
+backend/.env
+backend/period_tracker.db
+backend/__pycache__/
+frontend/.next/
+frontend/node_modules/
