@@ -32,6 +32,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             >
               Ask the Tutor
             </Link>
+            <Link
+              href="/insights"
+              className="text-sm px-3 py-1.5 rounded-full text-gray-600 hover:text-rose-600 hover:bg-rose-50 transition-all"
+            >
+              Insights
+            </Link>
           </div>
         </nav>
         <main className="max-w-2xl mx-auto px-4 py-8">{children}</main>

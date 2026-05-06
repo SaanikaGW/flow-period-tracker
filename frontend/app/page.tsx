@@ -21,6 +21,69 @@ const FLOW_LEVELS = [
   { id: "heavy",  label: "Heavy",  color: "bg-rose-100 text-rose-700  border-rose-300" },
 ];
 
+const REMINDER_KEY = "flow_reminder";
+const NOTIFIED_KEY = "flow_last_notified";
+
+function useReminder(logs: Log[]) {
+  const [enabled, setEnabled] = useState(false);
+  const [time, setTime] = useState("09:00");
+  const [permission, setPermission] = useState<NotificationPermission>("default");
+
+  useEffect(() => {
+    if ("Notification" in window) setPermission(Notification.permission);
+    const saved = localStorage.getItem(REMINDER_KEY);
+    if (saved) {
+      const s = JSON.parse(saved);
+      setEnabled(s.enabled);
+      setTime(s.time);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!enabled || permission !== "granted") return;
+    const check = () => {
+      const now = new Date();
+      const [h, m] = time.split(":").map(Number);
+      const target = new Date();
+      target.setHours(h, m, 0, 0);
+      const today = now.toISOString().slice(0, 10);
+      const lastNotified = localStorage.getItem(NOTIFIED_KEY);
+      const loggedToday = logs.some((l) => l.date === today);
+      if (now >= target && lastNotified !== today && !loggedToday) {
+        new Notification("Flow Reminder 🌸", {
+          body: "Don't forget to log your symptoms today!",
+        });
+        localStorage.setItem(NOTIFIED_KEY, today);
+      }
+    };
+    check();
+    const id = setInterval(check, 60_000);
+    return () => clearInterval(id);
+  }, [enabled, time, permission, logs]);
+
+  async function toggle() {
+    if (!enabled) {
+      if ("Notification" in window && Notification.permission !== "granted") {
+        const p = await Notification.requestPermission();
+        setPermission(p);
+        if (p !== "granted") return;
+      }
+      setEnabled(true);
+      localStorage.setItem(REMINDER_KEY, JSON.stringify({ enabled: true, time }));
+    } else {
+      setEnabled(false);
+      localStorage.setItem(REMINDER_KEY, JSON.stringify({ enabled: false, time }));
+    }
+  }
+
+  function updateTime(t: string) {
+    setTime(t);
+    localStorage.setItem(REMINDER_KEY, JSON.stringify({ enabled, time: t }));
+  }
+
+  return { enabled, time, permission, toggle, updateTime };
+}
+
 export type Log = {
   id: string;
   date: string;
@@ -52,6 +115,7 @@ export default function TrackerPage() {
   const [notes, setNotes] = useState("");
   const [logs, setLogs] = useState<Log[]>([]);
   const [saved, setSaved] = useState(false);
+  const reminder = useReminder(logs);
 
   useEffect(() => { setLogs(loadLogs()); }, []);
 
@@ -241,6 +305,46 @@ export default function TrackerPage() {
               </div>
             ))}
           </div>
+        )}
+      </div>
+
+      {/* Reminders */}
+      <div className="bg-white rounded-2xl border border-rose-100 shadow-sm p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-bold text-gray-800">Daily Reminder</p>
+            <p className="text-xs text-gray-400">Get notified to log your symptoms</p>
+          </div>
+          <button
+            onClick={reminder.toggle}
+            className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
+              reminder.enabled ? "bg-rose-500" : "bg-gray-200"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${
+                reminder.enabled ? "translate-x-5" : "translate-x-0"
+              }`}
+            />
+          </button>
+        </div>
+
+        {reminder.enabled && (
+          <div className="flex items-center gap-3 pt-1">
+            <label className="text-xs text-gray-500 shrink-0">Remind me at</label>
+            <input
+              type="time"
+              value={reminder.time}
+              onChange={(e) => reminder.updateTime(e.target.value)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-rose-300 bg-gray-50"
+            />
+          </div>
+        )}
+
+        {reminder.enabled && reminder.permission === "denied" && (
+          <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+            Notifications are blocked in your browser. Enable them in your browser settings to receive reminders.
+          </p>
         )}
       </div>
     </div>
