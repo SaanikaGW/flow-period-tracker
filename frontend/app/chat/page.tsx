@@ -1,6 +1,5 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { Log } from "../page";
 
 type Message = { role: "user" | "assistant"; content: string; time: string };
 
@@ -10,12 +9,6 @@ const SUGGESTIONS = [
   "Is fatigue during my period normal?",
   "What does my symptom history show?",
 ];
-
-function loadLogs(): Log[] {
-  if (typeof window === "undefined") return [];
-  try { return JSON.parse(localStorage.getItem("flow_logs") || "[]"); }
-  catch { return []; }
-}
 
 function now() {
   return new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -64,7 +57,7 @@ export default function ChatPage() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history, symptomLogs: loadLogs().slice(0, 30) }),
+        body: JSON.stringify({ message: text, history }),
       });
       const data = await res.json();
       setMessages((prev) => [

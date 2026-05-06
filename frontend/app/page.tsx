@@ -22,22 +22,12 @@ const FLOW_LEVELS = [
 ];
 
 export type Log = {
-  id: string;
+  id: number;
   date: string;
   symptoms: string[];
-  flow_level: string;
-  notes: string;
+  flow_level: string | null;
+  notes: string | null;
 };
-
-function loadLogs(): Log[] {
-  if (typeof window === "undefined") return [];
-  try { return JSON.parse(localStorage.getItem("flow_logs") || "[]"); }
-  catch { return []; }
-}
-
-function saveLogs(logs: Log[]) {
-  localStorage.setItem("flow_logs", JSON.stringify(logs));
-}
 
 function formatDate(d: string) {
   return new Date(d + "T12:00:00").toLocaleDateString("en-US", {
@@ -53,7 +43,12 @@ export default function TrackerPage() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => { setLogs(loadLogs()); }, []);
+  useEffect(() => {
+    fetch("/api/symptoms")
+      .then((r) => r.json())
+      .then(setLogs)
+      .catch(console.error);
+  }, []);
 
   function toggleSymptom(id: string) {
     setSelectedSymptoms((prev) =>
@@ -61,22 +56,26 @@ export default function TrackerPage() {
     );
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const newLog: Log = { id: Date.now().toString(), date, symptoms: selectedSymptoms, flow_level: flowLevel, notes };
-    const updated = [newLog, ...logs].sort((a, b) => b.date.localeCompare(a.date));
-    saveLogs(updated);
-    setLogs(updated);
+    const res = await fetch("/api/symptoms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date, symptoms: selectedSymptoms, flow_level: flowLevel, notes }),
+    });
+    if (!res.ok) return;
+
+    const all = await fetch("/api/symptoms").then((r) => r.json());
+    setLogs(all);
     setSelectedSymptoms([]);
     setNotes("");
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }
 
-  function handleDelete(id: string) {
-    const updated = logs.filter((l) => l.id !== id);
-    saveLogs(updated);
-    setLogs(updated);
+  async function handleDelete(id: number) {
+    await fetch(`/api/symptoms/${id}`, { method: "DELETE" });
+    setLogs((prev) => prev.filter((l) => l.id !== id));
   }
 
   return (
