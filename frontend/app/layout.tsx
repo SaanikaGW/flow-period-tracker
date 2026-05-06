@@ -30,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               href="/chat"
               className="text-sm px-3 py-1.5 rounded-full text-gray-600 hover:text-rose-600 hover:bg-rose-50 transition-all"
             >
-              Ask the Tutor
+              Period Inquirer
             </Link>
             <Link
               href="/insights"
