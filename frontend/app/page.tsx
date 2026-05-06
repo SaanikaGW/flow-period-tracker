@@ -22,12 +22,22 @@ const FLOW_LEVELS = [
 ];
 
 export type Log = {
-  id: number;
+  id: string;
   date: string;
   symptoms: string[];
-  flow_level: string | null;
-  notes: string | null;
+  flow_level: string;
+  notes: string;
 };
+
+function loadLogs(): Log[] {
+  if (typeof window === "undefined") return [];
+  try { return JSON.parse(localStorage.getItem("flow_logs") || "[]"); }
+  catch { return []; }
+}
+
+function saveLogs(logs: Log[]) {
+  localStorage.setItem("flow_logs", JSON.stringify(logs));
+}
 
 function formatDate(d: string) {
   return new Date(d + "T12:00:00").toLocaleDateString("en-US", {
@@ -43,12 +53,7 @@ export default function TrackerPage() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    fetch("/api/symptoms")
-      .then((r) => r.json())
-      .then(setLogs)
-      .catch(console.error);
-  }, []);
+  useEffect(() => { setLogs(loadLogs()); }, []);
 
   function toggleSymptom(id: string) {
     setSelectedSymptoms((prev) =>
@@ -56,40 +61,38 @@ export default function TrackerPage() {
     );
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const res = await fetch("/api/symptoms", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ date, symptoms: selectedSymptoms, flow_level: flowLevel, notes }),
-    });
-    if (!res.ok) return;
-
-    const all = await fetch("/api/symptoms").then((r) => r.json());
-    setLogs(all);
+    const newLog: Log = {
+      id: Date.now().toString(),
+      date,
+      symptoms: selectedSymptoms,
+      flow_level: flowLevel,
+      notes,
+    };
+    const updated = [newLog, ...logs].sort((a, b) => b.date.localeCompare(a.date));
+    saveLogs(updated);
+    setLogs(updated);
     setSelectedSymptoms([]);
     setNotes("");
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }
 
-  async function handleDelete(id: number) {
-    await fetch(`/api/symptoms/${id}`, { method: "DELETE" });
-    setLogs((prev) => prev.filter((l) => l.id !== id));
+  function handleDelete(id: string) {
+    const updated = logs.filter((l) => l.id !== id);
+    saveLogs(updated);
+    setLogs(updated);
   }
 
   return (
     <div className="space-y-6 animate-fade-in">
-      {/* Header */}
       <div className="space-y-1">
         <h1 className="text-2xl font-bold text-gray-900">How are you feeling?</h1>
         <p className="text-sm text-gray-400">Log your symptoms to track patterns over time.</p>
       </div>
 
-      {/* Form card */}
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-rose-100 shadow-sm p-6 space-y-6">
-
-        {/* Date */}
         <div className="flex items-center justify-between">
           <label className="text-sm font-semibold text-gray-700">Date</label>
           <input
@@ -102,7 +105,6 @@ export default function TrackerPage() {
 
         <hr className="border-rose-50" />
 
-        {/* Symptoms */}
         <div className="space-y-2">
           <label className="text-sm font-semibold text-gray-700">
             Symptoms
@@ -136,7 +138,6 @@ export default function TrackerPage() {
 
         <hr className="border-rose-50" />
 
-        {/* Flow level */}
         <div className="space-y-2">
           <label className="text-sm font-semibold text-gray-700">Flow Level</label>
           <div className="grid grid-cols-4 gap-2">
@@ -159,9 +160,10 @@ export default function TrackerPage() {
 
         <hr className="border-rose-50" />
 
-        {/* Notes */}
         <div className="space-y-2">
-          <label className="text-sm font-semibold text-gray-700">Notes <span className="text-gray-400 font-normal">(optional)</span></label>
+          <label className="text-sm font-semibold text-gray-700">
+            Notes <span className="text-gray-400 font-normal">(optional)</span>
+          </label>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -171,7 +173,6 @@ export default function TrackerPage() {
           />
         </div>
 
-        {/* Submit */}
         <button
           type="submit"
           className={`w-full py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${
@@ -184,11 +185,12 @@ export default function TrackerPage() {
         </button>
       </form>
 
-      {/* History */}
       <div className="space-y-3">
         <h2 className="text-base font-bold text-gray-800">
           History
-          {logs.length > 0 && <span className="ml-2 text-xs font-normal text-gray-400">{logs.length} entries</span>}
+          {logs.length > 0 && (
+            <span className="ml-2 text-xs font-normal text-gray-400">{logs.length} entries</span>
+          )}
         </h2>
 
         {logs.length === 0 ? (
