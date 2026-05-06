@@ -17,7 +17,7 @@ When explaining symptoms:
 export async function POST(req: Request) {
   const { message, history } = await req.json();
 
-  const logs = getSymptomHistory(30);
+  const logs = await getSymptomHistory(30);
   const contextSummary =
     logs.length > 0
       ? `The user has logged the following symptoms recently:\n${logs

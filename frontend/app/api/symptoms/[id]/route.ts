@@ -6,6 +6,6 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  deleteLog(Number(id));
+  await deleteLog(Number(id));
   return NextResponse.json({ status: "ok" });
 }
