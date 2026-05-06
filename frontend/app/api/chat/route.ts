@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getSymptomHistory } from "@/lib/db";
 
-const client = new OpenAI();
-
 const SYSTEM_PROMPT = `You are a knowledgeable, warm, and non-judgmental period health assistant.
 You help users understand their menstrual symptoms, explain why they happen, and suggest evidence-based remedies.
 
@@ -15,6 +13,7 @@ When explaining symptoms:
 - Be warm, empathetic, and never make the user feel embarrassed`;
 
 export async function POST(req: Request) {
+  const client = new OpenAI();
   const { message, history } = await req.json();
 
   const logs = await getSymptomHistory(30);
