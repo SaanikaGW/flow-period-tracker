@@ -2,6 +2,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useUser, SignInButton } from "@clerk/nextjs";
 import type { SymptomLog, CycleEvent } from "@/lib/db";
+import { computeCyclePrediction } from "@/lib/cycle";
+import { buildPredictiveAlerts, getCyclePhase, type PredictiveAlert } from "@/lib/alerts";
 
 const SYMPTOMS = [
   { id: "cramps",            label: "Cramps",            emoji: "😣" },
@@ -46,6 +48,9 @@ export default function TrackerPage() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [insight, setInsight] = useState<string | null>(null);
+  const [insightLoading, setInsightLoading] = useState(false);
+  const [dismissedAlerts, setDismissedAlerts] = useState<Set<string>>(new Set());
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -119,6 +124,29 @@ export default function TrackerPage() {
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
+
+    // Generate AI insight if there's something meaningful to analyze
+    if (selectedSymptoms.length > 0 || flowLevel !== "none") {
+      setInsight(null);
+      setInsightLoading(true);
+      try {
+        const res = await fetch("/api/insights", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            todayLog: { date, symptoms: selectedSymptoms, flow_level: flowLevel, notes },
+            recentLogs: logs.slice(0, 30),
+            cycleEvents,
+          }),
+        });
+        const data = await res.json();
+        setInsight(data.insight ?? null);
+      } catch {
+        // Insights are non-critical — fail silently
+      } finally {
+        setInsightLoading(false);
+      }
+    }
   }
 
   async function handleDelete(id: number) {
@@ -144,6 +172,19 @@ export default function TrackerPage() {
       setCycleEvents(await res.json());
     }
   }
+
+  const prediction = computeCyclePrediction(cycleEvents);
+  const alerts = buildPredictiveAlerts(logs, cycleEvents, prediction).filter(
+    (a) => !dismissedAlerts.has(a.id)
+  );
+  const phaseInfo = getCyclePhase(cycleEvents, prediction, date);
+
+  const ALERT_STYLES: Record<string, string> = {
+    rose:   "bg-rose-50 border-rose-200 text-rose-800",
+    pink:   "bg-pink-50 border-pink-200 text-pink-800",
+    amber:  "bg-amber-50 border-amber-200 text-amber-800",
+    violet: "bg-violet-50 border-violet-200 text-violet-800",
+  };
 
   if (!isLoaded) {
     return (
@@ -175,9 +216,38 @@ export default function TrackerPage() {
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="space-y-1">
-        <h1 className="text-2xl font-bold text-gray-900">How are you feeling?</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-gray-900">How are you feeling?</h1>
+          {phaseInfo && (
+            <span className="text-xs px-2.5 py-1 rounded-full font-semibold bg-rose-100 text-rose-600">
+              {phaseInfo.phase} · Day {phaseInfo.day}
+            </span>
+          )}
+        </div>
         <p className="text-sm text-gray-400">Log your symptoms to track patterns over time.</p>
       </div>
+
+      {/* Predictive alerts */}
+      {alerts.map((alert: PredictiveAlert) => (
+        <div
+          key={alert.id}
+          className={`rounded-2xl border px-4 py-3 flex items-start justify-between gap-3 animate-fade-in ${ALERT_STYLES[alert.color]}`}
+        >
+          <div className="space-y-0.5">
+            <p className="text-sm font-bold flex items-center gap-1.5">
+              <span>{alert.icon}</span> {alert.title}
+            </p>
+            <p className="text-xs opacity-80">{alert.body}</p>
+          </div>
+          <button
+            onClick={() => setDismissedAlerts((prev) => new Set([...prev, alert.id]))}
+            className="text-lg leading-none opacity-40 hover:opacity-70 transition-opacity shrink-0 mt-0.5"
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      ))}
 
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-rose-100 shadow-sm p-6 space-y-6">
         {/* Date */}
@@ -309,6 +379,37 @@ export default function TrackerPage() {
         >
           {saved ? "✓ Logged!" : saving ? "Saving…" : "Log Symptoms"}
         </button>
+
+        {/* AI Insight card */}
+        {(insightLoading || insight) && (
+          <div className="rounded-2xl border border-violet-100 bg-gradient-to-br from-violet-50 to-rose-50 p-4 space-y-2 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm">✨</span>
+                <span className="text-xs font-bold text-violet-700">Flow Insight</span>
+              </div>
+              {insight && (
+                <button
+                  type="button"
+                  onClick={() => setInsight(null)}
+                  className="text-violet-300 hover:text-violet-500 text-sm leading-none"
+                  aria-label="Dismiss"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            {insightLoading ? (
+              <div className="space-y-2">
+                <div className="h-2.5 bg-violet-100 rounded-full w-full animate-pulse" />
+                <div className="h-2.5 bg-violet-100 rounded-full w-4/5 animate-pulse" />
+                <div className="h-2.5 bg-violet-100 rounded-full w-3/5 animate-pulse" />
+              </div>
+            ) : (
+              <p className="text-xs text-violet-900 leading-relaxed">{insight}</p>
+            )}
+          </div>
+        )}
       </form>
 
       {/* History */}
