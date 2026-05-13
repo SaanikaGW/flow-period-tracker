@@ -30,11 +30,17 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   <Link href="/" className="text-sm px-3 py-1.5 rounded-full text-gray-600 hover:text-rose-600 hover:bg-rose-50 transition-all">
                     Tracker
                   </Link>
-                  <Link href="/chat" className="text-sm px-3 py-1.5 rounded-full text-gray-600 hover:text-rose-600 hover:bg-rose-50 transition-all">
-                    Period Inquirer
+                  <Link href="/calendar" className="text-sm px-3 py-1.5 rounded-full text-gray-600 hover:text-rose-600 hover:bg-rose-50 transition-all">
+                    Calendar
                   </Link>
                   <Link href="/insights" className="text-sm px-3 py-1.5 rounded-full text-gray-600 hover:text-rose-600 hover:bg-rose-50 transition-all">
                     Insights
+                  </Link>
+                  <Link href="/chat" className="text-sm px-3 py-1.5 rounded-full text-gray-600 hover:text-rose-600 hover:bg-rose-50 transition-all">
+                    Ask
+                  </Link>
+                  <Link href="/doctor" className="text-sm px-3 py-1.5 rounded-full text-gray-600 hover:text-rose-600 hover:bg-rose-50 transition-all">
+                    Doctor View
                   </Link>
                 </div>
               )}

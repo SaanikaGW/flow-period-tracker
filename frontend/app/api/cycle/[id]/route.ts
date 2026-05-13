@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { deleteLog } from "@/lib/db";
+import { deleteCycleEvent } from "@/lib/db";
 
 export async function DELETE(
   _req: Request,
@@ -9,6 +9,6 @@ export async function DELETE(
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { id } = await params;
-  await deleteLog(Number(id), userId);
+  await deleteCycleEvent(Number(id), userId);
   return NextResponse.json({ status: "ok" });
 }

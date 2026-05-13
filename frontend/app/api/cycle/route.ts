@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { getAllLogs, logSymptom } from "@/lib/db";
+import { getCycleEvents, addCycleEvent } from "@/lib/db";
 
 export async function GET() {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const logs = await getAllLogs(userId);
-  return NextResponse.json(logs);
+  const events = await getCycleEvents(userId);
+  return NextResponse.json(events);
 }
 
 export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { date, symptoms, flow_level, notes } = await req.json();
-  await logSymptom(userId, date, symptoms, flow_level ?? null, notes ?? null);
-  return NextResponse.json({ status: "ok" });
+  const { event_type, date } = await req.json();
+  const event = await addCycleEvent(userId, event_type, date);
+  return NextResponse.json(event);
 }

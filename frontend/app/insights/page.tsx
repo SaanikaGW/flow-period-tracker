@@ -4,7 +4,9 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   PieChart, Pie,
 } from "recharts";
-import type { Log } from "../page";
+import type { SymptomLog } from "@/lib/db";
+import { analyzeFlags, type HealthFlag } from "@/lib/flags";
+import { useUser } from "@clerk/nextjs";
 
 const SYMPTOM_LABELS: Record<string, { label: string; emoji: string }> = {
   cramps:            { label: "Cramps",            emoji: "😣" },
@@ -26,13 +28,54 @@ const FLOW_COLORS: Record<string, string> = {
   none:   "#e5e7eb",
 };
 
-function loadLogs(): Log[] {
-  if (typeof window === "undefined") return [];
-  try { return JSON.parse(localStorage.getItem("flow_logs") || "[]"); }
-  catch { return []; }
+const FLAG_BG: Record<string, string> = {
+  discuss: "border-rose-200 bg-rose-50",
+  watch:   "border-amber-200 bg-amber-50",
+};
+
+const FLAG_TEXT: Record<string, string> = {
+  discuss: "text-rose-700",
+  watch:   "text-amber-700",
+};
+
+const FLAG_BADGE: Record<string, string> = {
+  discuss: "bg-rose-100 text-rose-600",
+  watch:   "bg-amber-100 text-amber-600",
+};
+
+function FlagCard({ flag }: { flag: HealthFlag }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className={`rounded-2xl border p-4 space-y-2 ${FLAG_BG[flag.severity]}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">{flag.icon}</span>
+          <span className={`text-sm font-bold ${FLAG_TEXT[flag.severity]}`}>{flag.name}</span>
+        </div>
+        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${FLAG_BADGE[flag.severity]}`}>
+          {flag.severity === "discuss" ? "Talk to your doctor" : "Keep an eye on this"}
+        </span>
+      </div>
+      <p className={`text-xs ${FLAG_TEXT[flag.severity]}`}>{flag.summary}</p>
+      <button
+        onClick={() => setExpanded((x) => !x)}
+        className={`text-xs font-medium underline underline-offset-2 ${FLAG_TEXT[flag.severity]} opacity-70 hover:opacity-100`}
+      >
+        {expanded ? "Show less" : "Learn more"}
+      </button>
+      {expanded && (
+        <div className="space-y-2 pt-1 animate-fade-in">
+          <p className={`text-xs leading-relaxed ${FLAG_TEXT[flag.severity]}`}>{flag.detail}</p>
+          <div className={`rounded-lg px-3 py-2 text-xs font-medium ${FLAG_BADGE[flag.severity]}`}>
+            💡 Why it&apos;s often missed: {flag.why_overlooked}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
-function calcStreak(logs: Log[]): number {
+function calcStreak(logs: SymptomLog[]): number {
   if (!logs.length) return 0;
   const dates = new Set(logs.map((l) => l.date));
   let streak = 0;
@@ -47,9 +90,34 @@ function calcStreak(logs: Log[]): number {
 }
 
 export default function InsightsPage() {
-  const [logs, setLogs] = useState<Log[]>([]);
+  const { isSignedIn, isLoaded } = useUser();
+  const [logs, setLogs] = useState<SymptomLog[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => { setLogs(loadLogs()); }, []);
+  useEffect(() => {
+    if (!isSignedIn) return;
+    fetch("/api/symptoms")
+      .then((r) => r.json())
+      .then((data) => setLogs(Array.isArray(data) ? data : []))
+      .finally(() => setLoading(false));
+  }, [isSignedIn]);
+
+  if (!isLoaded || loading) {
+    return (
+      <div className="flex justify-center py-20">
+        <div className="w-5 h-5 rounded-full border-2 border-rose-200 border-t-rose-500 animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isSignedIn) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 space-y-3 animate-fade-in">
+        <p className="text-4xl">📊</p>
+        <p className="text-lg font-semibold text-gray-700">Sign in to see your insights</p>
+      </div>
+    );
+  }
 
   if (logs.length === 0) {
     return (
@@ -61,7 +129,8 @@ export default function InsightsPage() {
     );
   }
 
-  // Symptom frequency
+  const flags = analyzeFlags(logs);
+
   const symptomCounts: Record<string, number> = {};
   for (const log of logs) {
     for (const s of log.symptoms) {
@@ -76,7 +145,6 @@ export default function InsightsPage() {
       count,
     }));
 
-  // Flow distribution
   const flowCounts: Record<string, number> = {};
   for (const log of logs) {
     if (log.flow_level && log.flow_level !== "none") {
@@ -97,8 +165,30 @@ export default function InsightsPage() {
     <div className="space-y-6 animate-fade-in">
       <div className="space-y-1">
         <h1 className="text-2xl font-bold text-gray-900">Your Insights</h1>
-        <p className="text-sm text-gray-400">Patterns from your {totalDays} logged {totalDays === 1 ? "entry" : "entries"}.</p>
+        <p className="text-sm text-gray-400">
+          Patterns from your {totalDays} logged {totalDays === 1 ? "entry" : "entries"}.
+        </p>
       </div>
+
+      {/* Health Flags */}
+      {flags.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <h2 className="text-base font-bold text-gray-800">Health Patterns to Know</h2>
+            <span className="text-xs bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full font-medium">
+              {flags.length} flagged
+            </span>
+          </div>
+          <p className="text-xs text-gray-400">
+            Based on your logged data, these patterns match conditions that are often overlooked in women.
+          </p>
+          <div className="space-y-3">
+            {flags.map((flag) => (
+              <FlagCard key={flag.id} flag={flag} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Stat cards */}
       <div className="grid grid-cols-3 gap-3">
@@ -192,11 +282,15 @@ export default function InsightsPage() {
                 {new Date(log.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
               </span>
               <div className="flex flex-wrap gap-1 flex-1">
-                {log.symptoms.length > 0 ? log.symptoms.map((s) => (
-                  <span key={s} className="text-xs bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded-full">
-                    {SYMPTOM_LABELS[s]?.emoji} {SYMPTOM_LABELS[s]?.label ?? s}
-                  </span>
-                )) : <span className="text-xs text-gray-300">No symptoms</span>}
+                {log.symptoms.length > 0 ? (
+                  log.symptoms.map((s) => (
+                    <span key={s} className="text-xs bg-rose-50 text-rose-600 px-1.5 py-0.5 rounded-full">
+                      {SYMPTOM_LABELS[s]?.emoji} {SYMPTOM_LABELS[s]?.label ?? s}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-xs text-gray-300">No symptoms</span>
+                )}
               </div>
               {log.flow_level && log.flow_level !== "none" && (
                 <span className="text-xs text-rose-500 capitalize shrink-0">{log.flow_level}</span>

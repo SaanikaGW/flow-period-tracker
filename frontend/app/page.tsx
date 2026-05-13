@@ -1,17 +1,19 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useUser, SignInButton } from "@clerk/nextjs";
+import type { SymptomLog, CycleEvent } from "@/lib/db";
 
 const SYMPTOMS = [
-  { id: "cramps",            label: "Cramps",             emoji: "😣" },
-  { id: "bloating",          label: "Bloating",           emoji: "🫧" },
-  { id: "headache",          label: "Headache",           emoji: "🤕" },
-  { id: "fatigue",           label: "Fatigue",            emoji: "😴" },
-  { id: "back_pain",         label: "Back Pain",          emoji: "🔙" },
-  { id: "mood_swings",       label: "Mood Swings",        emoji: "🎭" },
-  { id: "nausea",            label: "Nausea",             emoji: "🤢" },
-  { id: "breast_tenderness", label: "Breast Tenderness",  emoji: "💗" },
-  { id: "acne",              label: "Acne",               emoji: "😤" },
-  { id: "insomnia",          label: "Insomnia",           emoji: "🌙" },
+  { id: "cramps",            label: "Cramps",            emoji: "😣" },
+  { id: "bloating",          label: "Bloating",          emoji: "🫧" },
+  { id: "headache",          label: "Headache",          emoji: "🤕" },
+  { id: "fatigue",           label: "Fatigue",           emoji: "😴" },
+  { id: "back_pain",         label: "Back Pain",         emoji: "🔙" },
+  { id: "mood_swings",       label: "Mood Swings",       emoji: "🎭" },
+  { id: "nausea",            label: "Nausea",            emoji: "🤢" },
+  { id: "breast_tenderness", label: "Breast Tenderness", emoji: "💗" },
+  { id: "acne",              label: "Acne",              emoji: "😤" },
+  { id: "insomnia",          label: "Insomnia",          emoji: "🌙" },
 ];
 
 const FLOW_LEVELS = [
@@ -21,132 +23,153 @@ const FLOW_LEVELS = [
   { id: "heavy",  label: "Heavy",  color: "bg-rose-100 text-rose-700  border-rose-300" },
 ];
 
-const REMINDER_KEY = "flow_reminder";
-const NOTIFIED_KEY = "flow_last_notified";
-
-function useReminder(logs: Log[]) {
-  const [enabled, setEnabled] = useState(false);
-  const [time, setTime] = useState("09:00");
-  const [permission, setPermission] = useState<NotificationPermission>("default");
-
-  useEffect(() => {
-    if ("Notification" in window) setPermission(Notification.permission);
-    const saved = localStorage.getItem(REMINDER_KEY);
-    if (saved) {
-      const s = JSON.parse(saved);
-      setEnabled(s.enabled);
-      setTime(s.time);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!enabled || permission !== "granted") return;
-    const check = () => {
-      const now = new Date();
-      const [h, m] = time.split(":").map(Number);
-      const target = new Date();
-      target.setHours(h, m, 0, 0);
-      const today = now.toISOString().slice(0, 10);
-      const lastNotified = localStorage.getItem(NOTIFIED_KEY);
-      const loggedToday = logs.some((l) => l.date === today);
-      if (now >= target && lastNotified !== today && !loggedToday) {
-        new Notification("Flow Reminder 🌸", {
-          body: "Don't forget to log your symptoms today!",
-        });
-        localStorage.setItem(NOTIFIED_KEY, today);
-      }
-    };
-    check();
-    const id = setInterval(check, 60_000);
-    return () => clearInterval(id);
-  }, [enabled, time, permission, logs]);
-
-  async function toggle() {
-    if (!enabled) {
-      if ("Notification" in window && Notification.permission !== "granted") {
-        const p = await Notification.requestPermission();
-        setPermission(p);
-        if (p !== "granted") return;
-      }
-      setEnabled(true);
-      localStorage.setItem(REMINDER_KEY, JSON.stringify({ enabled: true, time }));
-    } else {
-      setEnabled(false);
-      localStorage.setItem(REMINDER_KEY, JSON.stringify({ enabled: false, time }));
-    }
-  }
-
-  function updateTime(t: string) {
-    setTime(t);
-    localStorage.setItem(REMINDER_KEY, JSON.stringify({ enabled, time: t }));
-  }
-
-  return { enabled, time, permission, toggle, updateTime };
-}
-
-export type Log = {
-  id: string;
-  date: string;
-  symptoms: string[];
-  flow_level: string;
-  notes: string;
-};
-
-function loadLogs(): Log[] {
-  if (typeof window === "undefined") return [];
-  try { return JSON.parse(localStorage.getItem("flow_logs") || "[]"); }
-  catch { return []; }
-}
-
-function saveLogs(logs: Log[]) {
-  localStorage.setItem("flow_logs", JSON.stringify(logs));
-}
-
 function formatDate(d: string) {
   return new Date(d + "T12:00:00").toLocaleDateString("en-US", {
     weekday: "short", month: "short", day: "numeric",
   });
 }
 
+function Spinner() {
+  return (
+    <div className="w-5 h-5 rounded-full border-2 border-rose-200 border-t-rose-500 animate-spin" />
+  );
+}
+
 export default function TrackerPage() {
+  const { isSignedIn, isLoaded } = useUser();
+  const [logs, setLogs] = useState<SymptomLog[]>([]);
+  const [cycleEvents, setCycleEvents] = useState<CycleEvent[]>([]);
+  const [loading, setLoading] = useState(true);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [selectedSymptoms, setSelectedSymptoms] = useState<string[]>([]);
   const [flowLevel, setFlowLevel] = useState("none");
   const [notes, setNotes] = useState("");
-  const [logs, setLogs] = useState<Log[]>([]);
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const reminder = useReminder(logs);
 
-  useEffect(() => { setLogs(loadLogs()); }, []);
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [logsRes, cycleRes] = await Promise.all([
+        fetch("/api/symptoms"),
+        fetch("/api/cycle"),
+      ]);
+      setLogs(await logsRes.json());
+      setCycleEvents(await cycleRes.json());
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  function toggleSymptom(id: string) {
-    setSelectedSymptoms((prev) =>
-      prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]
-    );
-  }
+  useEffect(() => {
+    if (!isSignedIn) return;
+    fetchData();
 
-  function handleSubmit(e: React.FormEvent) {
+    // One-time migration from localStorage v2 data
+    const migrated = localStorage.getItem("flow_migrated_v3");
+    if (!migrated) {
+      const old = localStorage.getItem("flow_logs");
+      if (old) {
+        try {
+          const oldLogs = JSON.parse(old) as Array<{
+            date: string; symptoms: string[]; flow_level: string; notes: string;
+          }>;
+          Promise.all(
+            oldLogs.map((l) =>
+              fetch("/api/symptoms", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(l),
+              })
+            )
+          ).then(() => {
+            localStorage.removeItem("flow_logs");
+            localStorage.setItem("flow_migrated_v3", "true");
+            fetchData();
+          });
+        } catch { /* ignore */ }
+      }
+      localStorage.setItem("flow_migrated_v3", "true");
+    }
+  }, [isSignedIn, fetchData]);
+
+  // Pre-fill form when the selected date already has a log
+  useEffect(() => {
+    const existing = logs.find((l) => l.date === date);
+    if (existing) {
+      setSelectedSymptoms(existing.symptoms);
+      setFlowLevel(existing.flow_level ?? "none");
+      setNotes(existing.notes ?? "");
+    } else {
+      setSelectedSymptoms([]);
+      setFlowLevel("none");
+      setNotes("");
+    }
+  }, [date, logs]);
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const newLog: Log = {
-      id: Date.now().toString(),
-      date,
-      symptoms: selectedSymptoms,
-      flow_level: flowLevel,
-      notes,
-    };
-    const updated = [newLog, ...logs].sort((a, b) => b.date.localeCompare(a.date));
-    saveLogs(updated);
-    setLogs(updated);
-    setSelectedSymptoms([]);
-    setNotes("");
+    setSaving(true);
+    await fetch("/api/symptoms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date, symptoms: selectedSymptoms, flow_level: flowLevel, notes }),
+    });
+    await fetchData();
+    setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   }
 
-  function handleDelete(id: string) {
-    const updated = logs.filter((l) => l.id !== id);
-    saveLogs(updated);
-    setLogs(updated);
+  async function handleDelete(id: number) {
+    await fetch(`/api/symptoms/${id}`, { method: "DELETE" });
+    setLogs((prev) => prev.filter((l) => l.id !== id));
+  }
+
+  const periodStartForDate = cycleEvents.find((e) => e.date === date && e.event_type === "period_start");
+  const periodEndForDate = cycleEvents.find((e) => e.date === date && e.event_type === "period_end");
+
+  async function toggleCycleEvent(type: "period_start" | "period_end") {
+    const existing = type === "period_start" ? periodStartForDate : periodEndForDate;
+    if (existing) {
+      await fetch(`/api/cycle/${existing.id}`, { method: "DELETE" });
+      setCycleEvents((prev) => prev.filter((e) => e.id !== existing.id));
+    } else {
+      await fetch("/api/cycle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ event_type: type, date }),
+      });
+      const res = await fetch("/api/cycle");
+      setCycleEvents(await res.json());
+    }
+  }
+
+  if (!isLoaded) {
+    return (
+      <div className="flex justify-center py-20">
+        <Spinner />
+      </div>
+    );
+  }
+
+  if (!isSignedIn) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24 space-y-4 animate-fade-in">
+        <div className="w-14 h-14 rounded-full bg-gradient-to-br from-rose-400 to-pink-500 flex items-center justify-center text-2xl shadow-md">
+          🌸
+        </div>
+        <h1 className="text-xl font-bold text-gray-900">Welcome to Flow</h1>
+        <p className="text-sm text-gray-400 text-center max-w-xs">
+          Sign in to track your symptoms, log your cycle, and get personalized health insights.
+        </p>
+        <SignInButton mode="modal">
+          <button className="px-6 py-2.5 rounded-full bg-rose-500 text-white text-sm font-semibold hover:bg-rose-600 transition-all shadow-sm">
+            Sign in to get started
+          </button>
+        </SignInButton>
+      </div>
+    );
   }
 
   return (
@@ -157,6 +180,7 @@ export default function TrackerPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-rose-100 shadow-sm p-6 space-y-6">
+        {/* Date */}
         <div className="flex items-center justify-between">
           <label className="text-sm font-semibold text-gray-700">Date</label>
           <input
@@ -167,8 +191,39 @@ export default function TrackerPage() {
           />
         </div>
 
+        {/* Period tracking */}
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-gray-700">Period Tracking</label>
+          <p className="text-xs text-gray-400">Mark when your period starts or ends — used for cycle predictions.</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => toggleCycleEvent("period_start")}
+              className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                periodStartForDate
+                  ? "bg-rose-500 text-white border-rose-500 shadow-sm"
+                  : "bg-white text-rose-600 border-rose-200 hover:bg-rose-50"
+              }`}
+            >
+              🔴 Period Started
+            </button>
+            <button
+              type="button"
+              onClick={() => toggleCycleEvent("period_end")}
+              className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-all ${
+                periodEndForDate
+                  ? "bg-pink-400 text-white border-pink-400 shadow-sm"
+                  : "bg-white text-pink-500 border-pink-200 hover:bg-pink-50"
+              }`}
+            >
+              🌸 Period Ended
+            </button>
+          </div>
+        </div>
+
         <hr className="border-rose-50" />
 
+        {/* Symptoms */}
         <div className="space-y-2">
           <label className="text-sm font-semibold text-gray-700">
             Symptoms
@@ -185,7 +240,11 @@ export default function TrackerPage() {
                 <button
                   key={s.id}
                   type="button"
-                  onClick={() => toggleSymptom(s.id)}
+                  onClick={() =>
+                    setSelectedSymptoms((prev) =>
+                      prev.includes(s.id) ? prev.filter((x) => x !== s.id) : [...prev, s.id]
+                    )
+                  }
                   className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm border transition-all duration-150 text-left ${
                     active
                       ? "bg-rose-500 text-white border-rose-500 shadow-sm scale-[1.02]"
@@ -202,6 +261,7 @@ export default function TrackerPage() {
 
         <hr className="border-rose-50" />
 
+        {/* Flow Level */}
         <div className="space-y-2">
           <label className="text-sm font-semibold text-gray-700">Flow Level</label>
           <div className="grid grid-cols-4 gap-2">
@@ -224,6 +284,7 @@ export default function TrackerPage() {
 
         <hr className="border-rose-50" />
 
+        {/* Notes */}
         <div className="space-y-2">
           <label className="text-sm font-semibold text-gray-700">
             Notes <span className="text-gray-400 font-normal">(optional)</span>
@@ -239,16 +300,18 @@ export default function TrackerPage() {
 
         <button
           type="submit"
+          disabled={saving}
           className={`w-full py-3 rounded-xl text-sm font-semibold transition-all duration-200 ${
             saved
               ? "bg-green-500 text-white"
-              : "bg-rose-500 hover:bg-rose-600 text-white shadow-sm hover:shadow-md active:scale-[0.98]"
+              : "bg-rose-500 hover:bg-rose-600 text-white shadow-sm hover:shadow-md active:scale-[0.98] disabled:opacity-60"
           }`}
         >
-          {saved ? "✓ Logged!" : "Log Symptoms"}
+          {saved ? "✓ Logged!" : saving ? "Saving…" : "Log Symptoms"}
         </button>
       </form>
 
+      {/* History */}
       <div className="space-y-3">
         <h2 className="text-base font-bold text-gray-800">
           History
@@ -257,7 +320,11 @@ export default function TrackerPage() {
           )}
         </h2>
 
-        {logs.length === 0 ? (
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <Spinner />
+          </div>
+        ) : logs.length === 0 ? (
           <div className="bg-white rounded-2xl border border-dashed border-rose-200 p-8 text-center">
             <p className="text-2xl mb-2">📋</p>
             <p className="text-sm text-gray-400">No logs yet. Start tracking above.</p>
@@ -270,12 +337,22 @@ export default function TrackerPage() {
                 className="bg-white rounded-xl border border-rose-50 px-4 py-4 flex items-start justify-between hover:border-rose-200 transition-colors animate-fade-in"
                 style={{ animationDelay: `${i * 30}ms` }}
               >
-                <div className="space-y-2 flex-1">
-                  <div className="flex items-center gap-2">
+                <div className="space-y-2 flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-semibold text-gray-800">{formatDate(log.date)}</span>
                     {log.flow_level && log.flow_level !== "none" && (
                       <span className="text-xs bg-rose-100 text-rose-600 px-2 py-0.5 rounded-full capitalize font-medium">
                         {log.flow_level} flow
+                      </span>
+                    )}
+                    {cycleEvents.find((e) => e.date === log.date && e.event_type === "period_start") && (
+                      <span className="text-xs bg-red-50 text-red-500 px-2 py-0.5 rounded-full font-medium">
+                        🔴 Period started
+                      </span>
+                    )}
+                    {cycleEvents.find((e) => e.date === log.date && e.event_type === "period_end") && (
+                      <span className="text-xs bg-pink-50 text-pink-500 px-2 py-0.5 rounded-full font-medium">
+                        🌸 Period ended
                       </span>
                     )}
                   </div>
@@ -293,11 +370,13 @@ export default function TrackerPage() {
                   ) : (
                     <p className="text-xs text-gray-400 italic">No symptoms selected</p>
                   )}
-                  {log.notes && <p className="text-xs text-gray-500 italic">&ldquo;{log.notes}&rdquo;</p>}
+                  {log.notes && (
+                    <p className="text-xs text-gray-500 italic">&ldquo;{log.notes}&rdquo;</p>
+                  )}
                 </div>
                 <button
                   onClick={() => handleDelete(log.id)}
-                  className="ml-3 mt-0.5 text-gray-200 hover:text-rose-400 transition-colors text-sm leading-none"
+                  className="ml-3 mt-0.5 text-gray-200 hover:text-rose-400 transition-colors text-sm leading-none shrink-0"
                   aria-label="Delete"
                 >
                   ✕
@@ -305,46 +384,6 @@ export default function TrackerPage() {
               </div>
             ))}
           </div>
-        )}
-      </div>
-
-      {/* Reminders */}
-      <div className="bg-white rounded-2xl border border-rose-100 shadow-sm p-5 space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm font-bold text-gray-800">Daily Reminder</p>
-            <p className="text-xs text-gray-400">Get notified to log your symptoms</p>
-          </div>
-          <button
-            onClick={reminder.toggle}
-            className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
-              reminder.enabled ? "bg-rose-500" : "bg-gray-200"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform duration-200 ${
-                reminder.enabled ? "translate-x-5" : "translate-x-0"
-              }`}
-            />
-          </button>
-        </div>
-
-        {reminder.enabled && (
-          <div className="flex items-center gap-3 pt-1">
-            <label className="text-xs text-gray-500 shrink-0">Remind me at</label>
-            <input
-              type="time"
-              value={reminder.time}
-              onChange={(e) => reminder.updateTime(e.target.value)}
-              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-700 focus:outline-none focus:ring-2 focus:ring-rose-300 bg-gray-50"
-            />
-          </div>
-        )}
-
-        {reminder.enabled && reminder.permission === "denied" && (
-          <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
-            Notifications are blocked in your browser. Enable them in your browser settings to receive reminders.
-          </p>
         )}
       </div>
     </div>

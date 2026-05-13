@@ -1,14 +1,9 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
-import type { Log } from "../page";
+import type { SymptomLog } from "@/lib/db";
 
+type Log = SymptomLog;
 type Message = { role: "user" | "assistant"; content: string; time: string };
-
-function loadLogs(): Log[] {
-  if (typeof window === "undefined") return [];
-  try { return JSON.parse(localStorage.getItem("flow_logs") || "[]"); }
-  catch { return []; }
-}
 
 const SUGGESTIONS = [
   "Why do I get cramps?",
@@ -60,11 +55,20 @@ export default function ChatPage() {
       content: m.content,
     }));
 
+    let symptomLogs: Log[] = [];
+    try {
+      const logsRes = await fetch("/api/symptoms");
+      if (logsRes.ok) {
+        const data = await logsRes.json();
+        symptomLogs = Array.isArray(data) ? data.slice(0, 30) : [];
+      }
+    } catch { /* fall back to empty */ }
+
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history, symptomLogs: loadLogs().slice(0, 30) }),
+        body: JSON.stringify({ message: text, history, symptomLogs }),
       });
       const data = await res.json();
       setMessages((prev) => [
